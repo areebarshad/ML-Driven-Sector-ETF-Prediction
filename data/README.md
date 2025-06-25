@@ -4,12 +4,11 @@ It includes historical ETF Price Data, Model Evaluation Summaries, and Risk Anal
 
 ## Contents
 
-*File* -> sp500_sector_prices.csv | *Description*: Raw closing price data for major sector ETFs and SPY from 2008-2025, 
+- *File* -> sp500_sector_prices.csv | *Description*: Raw closing price data for major sector ETFs and SPY from 2008-2025, 
   imported from the yFinance library.
-*File* -> lgbm_risk_summary.csv | *Description*: Annual return, volatility, and Sharpe ratio for each sector ETF, computed
-  from historical returns.
-*File* -> sector_model_summary.csv | *Description*: Model evaluation metrics (R^2, RMSE, MAE) for each sector-specific,
-  LightGBM model.
+- *File* -> lgbm_risk_summary.csv | *Description*: Annual return, volatility, and Sharpe ratio for each sector ETF, computed from historical returns.
+- *File* -> sector_model_summary.csv | *Description*: Model evaluation metrics (R^2, RMSE, MAE) for each
+  sector-specific LightGBM model.
 
 ## Additional Data Sources
 
@@ -30,7 +29,7 @@ The following macroeconomic indicators are downloaded during data processing:
 - All '.csv' files are generated from the pipeline defined in the 'notebooks/LGBM_Sector_Prediction/' notebook.
 - Files are updated everytime the pipleine is rerun.
 
-# Related Information
+## Related Information
 
 - Plots generated from this data are stored in the 'plots/' directory.
 - Code used to generate this data is available in the 'notebooks/' directory.
