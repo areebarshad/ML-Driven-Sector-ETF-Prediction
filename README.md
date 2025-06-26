@@ -41,8 +41,8 @@ The features engineered include:
 
 ## Results
 
-- The predictive models demonstrated strong performance across various sectors, with **R² scores** ranging from **0.79 to 0.87**, indicating good predictive accuracy in most cases.
-- The models also identified sectors with the best **risk-adjusted returns** based on **Sharpe ratios**.
+- The predictive model demonstrated strong performance across various sectors, with **R² scores** ranging from **0.79 to 0.87**, indicating good predictive accuracy in most cases.
+- The model also identified sectors with the best **risk-adjusted returns** based on **Sharpe ratios**.
 
 ---
 
