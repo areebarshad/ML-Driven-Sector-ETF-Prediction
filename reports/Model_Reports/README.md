@@ -1,4 +1,4 @@
-# S&P 500 Sector Prediction - Model Report
+# ML-Driven-Sector-ETF-Prediction - Model Report
 
 ## Overview
 
