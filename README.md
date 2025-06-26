@@ -73,7 +73,6 @@ The features engineered include:
 |   ├── README.md           
 ├── reports/
 │   ├── Model_Reports/                    
-│   ├── Risk_Assessment_Reports/          
-│   ├── Sharpe_Ratio_Summary/
+│   ├── Risk_Assessment_Summart/
 |   ├── README.md            
 └── README.md                             
