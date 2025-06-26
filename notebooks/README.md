@@ -1,6 +1,6 @@
 # Notebooks Directory
 
-This folder contains the Google Colab notebooks for the S&P 500 Sector Prediction project using LightGBM.
+This folder contains the Google Colab notebooks for the ML-Driven-Sector-ETF-Prediction project using LightGBM.
 The notebooks are structured to handle data collection, feature engineering, model training, evaluation, and analysis.
 
 ## Notebook Breakdown
