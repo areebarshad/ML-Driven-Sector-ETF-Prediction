@@ -1,5 +1,5 @@
 # Data Directory
-This folder contains the raw and processed data used for the S%P500 Sector Prediction project using LightGBM.
+This folder contains the raw and processed data used for the ML-Driven-Sector-ETF-Prediction project using LightGBM.
 It includes historical ETF Price Data, Model Evaluation Summaries, and Risk Analysis Outputs.
 
 ## Contents
