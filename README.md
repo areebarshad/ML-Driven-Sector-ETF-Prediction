@@ -46,6 +46,16 @@ The features engineered include:
 
 ---
 
+## Author
+
+**Areeb Arshad**
+
+Sophomore, Data Science, Economics
+
+Virginia Tech
+
+---
+
 ## Folder Structure
 
 ```plaintext
