@@ -2,7 +2,7 @@
 
 ## Overview 
 
-- The ML-Driven-Sector-ETF-Prediction project aims to evaluate and predict the returns of various S%P 500 sector ETFs.
+- The ML-Driven-Sector-ETF-Prediction project aims to evaluate and predict the returns of various S&P 500 sector ETFs.
 - The core goal is to identify which sectors offer the best risk-adjusted returns and explore whether predictive models can accurately forecast sector performance using historical price and volatility data.
 - This project utilises *LightGBM*, a powerful gradient boosting framework, to build and evaluate return predictive models across multiple sectors.
 
