@@ -1,6 +1,6 @@
 # Plots Directory
 
-This folder contains plots generated from the ML-Driven-Sector-ETF-Prediction project model. 
+This folder contains plots generated from the ML-Driven-Sector-ETF-Prediction model. 
 The plots are mainly used for model evaluation, performance evaluation, and risk assessment across different sector ETFs.
 
 ## Folder Breakdown
