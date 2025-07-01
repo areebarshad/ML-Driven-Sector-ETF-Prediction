@@ -16,10 +16,9 @@ The plots are mainly used for model evaluation, performance evaluation, and risk
 
 ## Notes
 
-- All plots are generated from the `LGBM_Prediction_Model/` notebook, using code from the `sector_predictive_analysis/` notebook and the `sector_risk_analsys/` notebook.
+- All plots are generated from the `LGBM_Prediction_Model/` folder, using code from the `sector_predictive_analysis/` folder and the `sector_risk_analsys/` folder, all stored in the `notebooks/` directory.
 - The plot filenames include the sector ticker ('XLK', 'XLV', ...) to easily identify which plot correlates to which sector.
 
 ## Related Information
 
 - The data used for generating these plots is stored in the `data/` directory.
-- The code for training the model and generating the plots is stored in the `notebooks/` directory.
