@@ -1,0 +1,3 @@
+Strategy,Sharpe,Annual_Return,Annual_Vol,Max_Drawdown
+Proportional,0.6625,0.1037,0.1565,-0.3141
+Top-3 Long-Short,0.2777,0.0316,0.1139,-0.3642

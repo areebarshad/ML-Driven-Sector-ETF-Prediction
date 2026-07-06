@@ -11,7 +11,7 @@ all files below are regenerated deterministically by running the pipeline script
 | File | Produced by | Description |
 |------|-------------|-------------|
 | `sp500_sector_prices.csv` | `sector_data_collection` | Adjusted closing prices for the 9 sector ETFs + SPY, 2008–2025, from `yfinance`. |
-| `sector_model_summary.csv` | `sector_predictive_analysis` / `LGBM_Prediction_Model` | Out-of-sample metrics per sector: R², RMSE, MAE, and the annualized directional Sharpe. |
+| `sector_model_summary.csv` | `sector_predictive_analysis` / `LGBM_Prediction_Model` | Out-of-sample metrics per sector. From the consolidated (hybrid classifier) run: `Accuracy`, `AUC`, mapped `R²`, `RMSE`, `MAE`, and `Directional_Sharpe`. |
 | `lgbm_risk_summary.csv` | `sector_risk_analysis` | Annualized return, volatility, and Sharpe ratio per sector ETF. |
 | `portfolio_backtest_returns.csv` | `portfolio_backtest` | Daily strategy return series for each allocation scheme (proportional, top-N long-short). |
 | `portfolio_backtest_summary.csv` | `portfolio_backtest` | Un-leaked walk-forward trading Sharpe, annualized return/volatility, and max drawdown per strategy. |

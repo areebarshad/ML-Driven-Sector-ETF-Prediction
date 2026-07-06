@@ -30,8 +30,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import yfinance as yf
-from lightgbm import LGBMRegressor
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+from lightgbm import LGBMRegressor, LGBMClassifier
+from sklearn.metrics import (
+    r2_score, mean_squared_error, mean_absolute_error,
+    accuracy_score, roc_auc_score,
+)
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
@@ -525,6 +528,162 @@ def train_evaluate_model(features, target, target_ticker, sector_params=None,
     }
 
 
+# ── Hybrid Classification Engine with Continuous R² Mapping ──────────────────────
+
+def train_evaluate_hybrid(features, y_continuous, target_ticker, vol_series,
+                          sector_params=None, n_splits=5, n_pca=N_PCA,
+                          apply_adf=True, adf_signif=ADF_SIGNIF):
+    """
+    Train a directional LightGBM CLASSIFIER while retaining a continuous out-of-sample
+    R² by mapping predicted probabilities back to the return scale.
+
+    Rationale (see reports/Methodology_Enhancements): directional sign is easier to
+    learn than magnitude on noisy short-horizon returns, so the optimization target is
+    the binary signal  y_signal = 1[y_continuous > 0]. To keep a magnitude-aware
+    regression diagnostic, each fold's predicted probability of a positive return is
+    mapped to a volatility-scaled continuous prediction:
+
+        y_pred_continuous = (P(up) - 0.5) * 2 * vol_t
+
+    where vol_t is the RAW (unscaled) rolling volatility of the target sector at time t
+    (same definition as the {ticker}_vol feature). A probability of 1 predicts +vol,
+    0 predicts -vol, 0.5 predicts 0 — dimensionally consistent with realized returns.
+
+    The continuous R² is then the standard regression score of the mapped predictions
+    against the actual continuous forward returns:
+
+        R²_OOS = 1 - SS_res / SS_tot
+
+    All leakage controls from train_evaluate_model are preserved (per-fold PCA,
+    per-fold scaler, ADF differencing and multicollinearity pruning decided on the
+    earliest training block). Classification-native metrics (accuracy, ROC-AUC) and the
+    annualized directional Sharpe are reported alongside R², because a heuristic
+    probability→return mapping generally yields a low continuous R² even when
+    directional skill (accuracy/AUC) is real.
+
+    Returns a dict whose 'y_pred' is the continuous mapped prediction, so the
+    cross-sectional portfolio backtest can consume it exactly like the regressor path.
+    """
+    if sector_params is None:
+        sector_params = SECTOR_PARAMS
+
+    y_continuous = y_continuous.dropna()
+    features = features.dropna()
+    common = features.index.intersection(y_continuous.index)
+    X = features.loc[common].copy()
+    y_cont = y_continuous.loc[common].copy()
+    # Binary directional signal target used for classifier optimization.
+    y_signal = (y_cont > 0).astype(int)
+
+    tscv = TimeSeriesSplit(n_splits=n_splits)
+    splits = list(tscv.split(X))
+    first_train_idx = splits[0][0]
+    X_first = X.iloc[first_train_idx]
+    lag_cols = [f'lag_{i}' for i in range(1, N_LAGS + 1)]
+
+    # (2) ADF stationarity screening decided on the earliest training block.
+    if apply_adf and _HAS_STATSMODELS:
+        diff_cols = select_nonstationary_columns(X_first, signif=adf_signif, exclude=set(lag_cols))
+        if diff_cols:
+            X = apply_first_difference(X, diff_cols)
+    elif apply_adf and not _HAS_STATSMODELS:
+        warnings.warn("statsmodels not installed; skipping ADF stationarity filter.")
+
+    # (3) Multicollinearity pruning decided on the earliest training block.
+    X_first = X.iloc[first_train_idx].dropna()
+    prune_candidates = [c for c in X_first.columns if c not in lag_cols]
+    corr = X_first[prune_candidates].corr().abs()
+    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+    to_drop = [c for c in upper.columns if any(upper[c] > 0.95)]
+    X = X.drop(columns=to_drop)
+
+    # Re-align after differencing introduced leading NaNs.
+    X = X.dropna()
+    common = X.index.intersection(y_cont.index)
+    X, y_cont, y_signal = X.loc[common], y_cont.loc[common], y_signal.loc[common]
+    splits = list(TimeSeriesSplit(n_splits=n_splits).split(X))
+
+    # (4) Sector dummy.
+    X['sector_dummy'] = 1.0
+
+    # Raw volatility aligned to the sample (return-scale mapping factor).
+    vol_aligned = vol_series.reindex(X.index).ffill().bfill()
+
+    oof_prob, oof_cont_pred, oof_cont_actual, oof_signal, oof_index = [], [], [], [], []
+    params = sector_params.get(target_ticker, {"max_depth": 10, "num_leaves": 64})
+
+    for train_idx, test_idx in splits:
+        X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
+        y_sig_tr = y_signal.iloc[train_idx]
+        y_cont_te = y_cont.iloc[test_idx]
+        y_sig_te = y_signal.iloc[test_idx]
+
+        # (5a) Per-fold PCA on the lag block.
+        X_tr, X_te = _fold_pca_transform(X_tr, X_te, lag_cols, n_pca=n_pca)
+
+        # (5b) Per-fold scaling — train statistics only.
+        scaler = StandardScaler()
+        X_tr_s = pd.DataFrame(scaler.fit_transform(X_tr), index=X_tr.index, columns=X_tr.columns)
+        X_te_s = pd.DataFrame(scaler.transform(X_te), index=X_te.index, columns=X_te.columns)
+
+        # (5c) Fit classifier; extract probability of a positive return.
+        model = LGBMClassifier(**LGBM_BASE_PARAMS, **params)
+        model.fit(X_tr_s, y_sig_tr)
+        prob_positive = model.predict_proba(X_te_s)[:, 1]
+
+        # Map probability centered at 0 back to the volatility-scaled return scale.
+        vol_te = vol_aligned.iloc[test_idx].values
+        y_pred_cont = (prob_positive - 0.5) * 2.0 * vol_te
+
+        oof_prob.extend(prob_positive)
+        oof_cont_pred.extend(y_pred_cont)
+        oof_cont_actual.extend(y_cont_te.values)
+        oof_signal.extend(y_sig_te.values)
+        oof_index.extend(y_cont_te.index)
+
+    oof_prob = np.asarray(oof_prob)
+    oof_cont_pred = np.asarray(oof_cont_pred)
+    oof_cont_actual = np.asarray(oof_cont_actual)
+    oof_signal = np.asarray(oof_signal)
+
+    # (6) Hybrid out-of-sample metrics.
+    r2 = r2_score(oof_cont_actual, oof_cont_pred)          # continuous R² from mapping
+    rmse = math.sqrt(mean_squared_error(oof_cont_actual, oof_cont_pred))
+    mae = mean_absolute_error(oof_cont_actual, oof_cont_pred)
+    pred_class = (oof_prob > 0.5).astype(int)
+    accuracy = accuracy_score(oof_signal, pred_class)
+    try:
+        auc = roc_auc_score(oof_signal, oof_prob)
+    except ValueError:
+        auc = float('nan')
+    strat = np.sign(oof_prob - 0.5) * oof_cont_actual
+    sharpe = strat.mean() / (strat.std() + 1e-9) * math.sqrt(252)
+
+    print(f"[{target_ticker}] R2 (OOS): {r2:.4f} | Accuracy: {accuracy:.4f} | "
+          f"AUC: {auc:.4f} | Directional Sharpe: {sharpe:.4f}")
+
+    # (7) Full-data refit for feature-importance reporting only.
+    X_full_tr, _ = _fold_pca_transform(X, X, lag_cols, n_pca=n_pca)
+    scaler_final = StandardScaler()
+    X_full_s = pd.DataFrame(scaler_final.fit_transform(X_full_tr),
+                            index=X_full_tr.index, columns=X_full_tr.columns)
+    model_final = LGBMClassifier(**LGBM_BASE_PARAMS, **params)
+    model_final.fit(X_full_s, y_signal)
+    importances_df = pd.DataFrame(
+        {"Feature": X_full_tr.columns, "Importance": model_final.feature_importances_}
+    )
+
+    return {
+        "model": model_final,
+        "r2": r2, "rmse": rmse, "mae": mae,
+        "accuracy": accuracy, "auc": auc, "sharpe": sharpe,
+        "y_test": pd.Series(oof_cont_actual, index=oof_index),
+        "y_pred": pd.Series(oof_cont_pred, index=oof_index),
+        "prob": pd.Series(oof_prob, index=oof_index),
+        "importances_df": importances_df,
+    }
+
+
 # ── Portfolio Backtest (cross-sectional, un-leaked) ─────────────────────────────
 
 def build_weights(pred_df, scheme='proportional', top_n=3):
@@ -584,11 +743,17 @@ def backtest_portfolio(weights, realized, rf=0.0, periods_per_year=252):
     }
 
 
-# ── Plotting ────────────────────────────────────────────────────────────────────
+# ── Plotting (two-stage: Stage 1 saves headless, Stage 2 displays batched) ──────
+#
+# Every plot helper builds a figure, optionally writes it to disk (save_path), and
+# either closes it immediately (close=True — Stage 1 headless asset generation, keeps
+# the pipeline non-blocking) or leaves it open (close=False — Stage 2 simultaneous
+# batch display via plt.ion()/plt.show(block=True) at the end of the main script).
+# No helper calls plt.show() itself; display is centralized in the orchestrator.
 
-def plot_feature_importances(importances_df, target_ticker, save_path=None):
+def plot_feature_importances(importances_df, target_ticker, save_path=None, close=True):
+    fig = plt.figure(figsize=(10, 6))
     top = importances_df.sort_values(by='Importance', ascending=False).head(20)
-    plt.figure(figsize=(10, 6))
     plt.barh(top['Feature'], top['Importance'], color='teal')
     plt.title(f'Top 20 Feature Importances - {target_ticker}')
     plt.xlabel('Importance (split gain)')
@@ -596,14 +761,19 @@ def plot_feature_importances(importances_df, target_ticker, save_path=None):
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=120)
-    plt.show()
+    if close:
+        plt.close(fig)
+    return fig
 
 
-def plot_actual_vs_predicted(y_test, y_pred, target_ticker, title_note='', save_path=None):
-    plt.figure(figsize=(12, 6))
+def plot_actual_vs_predicted(y_test, y_pred, target_ticker, title_note='',
+                             save_path=None, close=True):
+    fig = plt.figure(figsize=(12, 6))
     plt.plot(y_test.index, y_test.values, label='Actual', color='crimson', alpha=0.7, linewidth=2)
-    plt.plot(y_test.index, y_pred.values, label='Predicted', color='royalblue', alpha=0.7, linewidth=2)
-    plt.title(f'{target_ticker} - LightGBM Predicted vs Actual (OOS){title_note}', fontsize=14)
+    plt.plot(y_test.index, y_pred.values, label='Predicted (mapped)', color='royalblue',
+             alpha=0.7, linewidth=2)
+    plt.title(f'{target_ticker} - Hybrid Classifier: Mapped vs Actual Returns (OOS){title_note}',
+              fontsize=14)
     plt.xlabel('Date')
     plt.ylabel('5-Day Forward Return')
     plt.grid(True)
@@ -611,16 +781,18 @@ def plot_actual_vs_predicted(y_test, y_pred, target_ticker, title_note='', save_
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=120)
-    plt.show()
+    if close:
+        plt.close(fig)
+    return fig
 
 
-def plot_equity_curve(results_by_scheme, save_path=None):
+def plot_equity_curve(results_by_scheme, save_path=None, close=True):
     """Overlay cumulative equity curves for one or more backtest result dicts."""
-    plt.figure(figsize=(12, 6))
+    fig = plt.figure(figsize=(12, 6))
     for label, res in results_by_scheme.items():
         plt.plot(res['cumulative'].index, res['cumulative'].values,
                  label=f"{label} (Sharpe {res['sharpe']:.2f})", linewidth=2)
-    plt.title('Walk-Forward Cross-Sectional Strategy — Cumulative Equity Curve', fontsize=14)
+    plt.title('Walk-Forward Cross-Sectional Strategy - Cumulative Equity Curve', fontsize=14)
     plt.xlabel('Date')
     plt.ylabel('Growth of $1 (gross of costs)')
     plt.grid(True)
@@ -628,4 +800,64 @@ def plot_equity_curve(results_by_scheme, save_path=None):
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=120)
-    plt.show()
+    if close:
+        plt.close(fig)
+    return fig
+
+
+def plot_metric_bar(labels, values, title, ylabel, color='steelblue',
+                    hline=None, hline_label=None, save_path=None, close=True):
+    """Generic labeled bar chart for a per-sector metric (R², accuracy, Sharpe, …)."""
+    fig = plt.figure(figsize=(10, 6))
+    plt.bar(labels, values, color=color, alpha=0.8)
+    if hline is not None:
+        plt.axhline(y=hline, color='black', linestyle='--', label=hline_label)
+        plt.legend()
+    plt.title(title, fontsize=15)
+    plt.ylabel(ylabel)
+    plt.xlabel('Sector ETF')
+    plt.grid(True, axis='y')
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=120)
+    if close:
+        plt.close(fig)
+    return fig
+
+
+def plot_eda(data, returns, plots_dir, close=True):
+    """Generate and save the three EDA figures (price trends, return box, correlation)."""
+    import seaborn as sns
+    paths = {}
+
+    fig1 = plt.figure(figsize=(12, 6))
+    data.plot(ax=plt.gca())
+    plt.title('Sector ETF Adjusted Closing Price Trends (2008-2025)')
+    plt.xlabel('Date'); plt.ylabel('Price (USD)')
+    plt.tight_layout()
+    p1 = os.path.join(plots_dir, 'Price_Trends_&_Return_Distributions', 'price_trends.png')
+    os.makedirs(os.path.dirname(p1), exist_ok=True)
+    plt.savefig(p1, dpi=120); paths['price_trends'] = p1
+    if close:
+        plt.close(fig1)
+
+    fig2 = plt.figure(figsize=(12, 6))
+    returns.plot(kind='box', ax=plt.gca())
+    plt.title('Sector ETF Daily Return Distributions')
+    plt.tight_layout()
+    p2 = os.path.join(plots_dir, 'Price_Trends_&_Return_Distributions', 'return_distributions.png')
+    plt.savefig(p2, dpi=120); paths['return_distributions'] = p2
+    if close:
+        plt.close(fig2)
+
+    fig3 = plt.figure(figsize=(9, 7))
+    sns.heatmap(returns.corr(), annot=True, fmt='.2f', cmap='coolwarm', center=0, ax=plt.gca())
+    plt.title('Sector ETF Returns Correlation Heatmap')
+    plt.tight_layout()
+    p3 = os.path.join(plots_dir, 'Returns_Correlation_Heatmap', 'correlation_heatmap.png')
+    os.makedirs(os.path.dirname(p3), exist_ok=True)
+    plt.savefig(p3, dpi=120); paths['correlation_heatmap'] = p3
+    if close:
+        plt.close(fig3)
+
+    return paths

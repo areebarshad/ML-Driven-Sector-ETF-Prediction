@@ -138,6 +138,52 @@ Sharpe ratio ignores).
 
 ---
 
+## 3bis. Hybrid Directional Classification with Continuous R² Mapping
+
+The engine was migrated from `LGBMRegressor` to **`LGBMClassifier`**
+(`train_evaluate_hybrid`). The optimisation target is the binary directional signal
+`y_signal = 1[y_continuous > 0]`, because on noisy short-horizon returns the *sign* is
+far more learnable than the *magnitude*. To preserve a magnitude-aware diagnostic, each
+fold's predicted probability of an up-move is mapped back to the return scale:
+
+```
+ŷ_continuous = (P(up) − 0.5) · 2 · vol_t
+```
+
+where `vol_t` is the raw (unscaled) rolling volatility of the target sector — identical
+to the `{ticker}_vol` feature — so a probability of 1 predicts +vol, 0 predicts −vol,
+and 0.5 predicts 0. The continuous out-of-sample R² is the standard regression score of
+`ŷ_continuous` against the realised forward return. All leakage controls (per-fold PCA,
+per-fold scaler, ADF differencing, pruning) are inherited unchanged.
+
+**Reported metrics and the honest R² story.** The pipeline reports accuracy and ROC-AUC
+(the classifier's native metrics), the annualised directional Sharpe, and the mapped R².
+On the live 2008–2025 run the mapped R² is **negative for every sector (mean ≈ −1.83)**.
+This is expected and is reported rather than hidden: `(P−0.5)·2·vol` is a deliberately
+simple, uncalibrated transform that over-states magnitude, so as a *point* estimator of
+return size it is worse than the mean. A classifier's skill is directional — mean
+accuracy ≈ 0.545 and mean AUC ≈ 0.520, a small but consistent edge over the 0.50
+baseline. The negative R² quantifies the (known) weakness of the mapping, not a failure
+of the model.
+
+## 3ter. Two-Stage Non-Blocking Plotting Architecture
+
+Rendering was decoupled into two stages so the pipeline never freezes on a blocking GUI
+call:
+
+- **Stage 1 — headless asset generation (throughout).** Every plot helper builds its
+  figure, writes it to `plots/<category>/…` via `savefig`, and immediately `plt.close()`s
+  it. This flushes memory and keeps the execution thread moving. No helper calls
+  `plt.show()`.
+- **Stage 2 — simultaneous batch display (at the very end).** After all computation,
+  the orchestrator calls `plt.ion()`, re-renders every diagnostic with `close=False`, and
+  finishes with `plt.show(block=True)` so that, under an interactive backend, all windows
+  populate at once without blocking earlier work. Under a headless backend (Agg — used
+  for the reproducible run) Stage 2 is a harmless no-op and the Stage-1 PNGs are the
+  durable output.
+
+---
+
 ## 4. Verification
 
 The pipeline is validated by a synthetic end-to-end test harness (no network) that
@@ -145,9 +191,11 @@ asserts: forward-target alignment, look-ahead-free feature construction, weight-
 invariants (proportional gross = 1; long-short net = 0, gross = 2), backtest metric
 sanity, ADF discrimination (white-noise stationary, random-walk non-stationary), and a
 full walk-forward LightGBM run with per-fold PCA. The decisive check is the **leakage
-guard**: a pure-noise future target must yield OOS R² ≈ 0 (observed ≈ −0.11). Because a
-leaking pipeline would "predict" even random targets, a non-positive R² on noise
-confirms the absence of look-ahead leakage.
+guard**: a pure-noise future target must yield OOS R² ≈ 0 (observed ≈ −0.11) for the
+regressor path, and for the hybrid classifier a shuffled/noise target must yield
+**AUC ≈ 0.50** (observed ≈ 0.49) — no ability to rank a random signal. Because a leaking
+pipeline would "predict" even random targets, these null results confirm the absence of
+look-ahead leakage.
 
 ---
 

@@ -1,20 +1,21 @@
 """
-LightGBM_prediction_model.py — Canonical end-to-end pipeline orchestrator.
+LightGBM_prediction_model.py — Canonical end-to-end pipeline (hybrid classifier).
 
-Runs the full workflow in dependency order using the shared LGBM_functions library:
+Signal-classification variant: the engine is an LGBMClassifier that predicts the
+binary directional signal 1[forward_return > 0], while a continuous out-of-sample R²
+is retained by mapping each fold's predicted probability of an up-move back to the
+return scale ( (P(up) - 0.5) * 2 * vol ). See LGBM_functions.train_evaluate_hybrid and
+reports/Methodology_Enhancements for the derivation.
 
-    1. Data ingestion        (Yahoo Finance -> data/sp500_sector_prices.csv)
-    2. Exploratory analysis  (price trends, return distributions, correlation)
-    3. Feature engineering + leakage-free walk-forward model training (per sector)
-    4. Out-of-sample evaluation (R2 / RMSE / MAE / directional Sharpe)
-    5. Risk attribution      (annualized return, volatility, Sharpe by sector)
-    6. Cross-sectional portfolio backtest (un-leaked walk-forward trading Sharpe)
+Plotting follows a two-stage, non-blocking architecture:
+  Stage 1 (throughout): every figure is written to plots/<category>/... and closed
+          immediately (plt.close), so asset generation never freezes the pipeline.
+  Stage 2 (at the very end): plt.ion() + a batched re-render of all diagnostics +
+          plt.show(block=True) so, under an interactive backend, every window opens
+          simultaneously without blocking earlier computation. Under a headless
+          backend (Agg) Stage 2 is a harmless no-op and the saved PNGs are the output.
 
-All leakage-sensitive logic (feature/target alignment, per-fold PCA, per-fold
-scaling, ADF stationarity screening, walk-forward CV) lives in LGBM_functions.py so
-that this orchestrator and the per-stage driver scripts share a single, audited
-implementation. See the QuantFinance wiki synthesis note "LightGBM Sector ETF
-Pipeline — Leakage Audit and Theoretical Context" for the full derivation.
+Run:  python LightGBM_prediction_model.py
 """
 
 import os
@@ -22,7 +23,7 @@ import sys
 
 import numpy as np
 import pandas as pd
-import seaborn as sns
+import matplotlib
 import matplotlib.pyplot as plt
 
 _FUNCTIONS_DIR = os.path.abspath(
@@ -34,25 +35,12 @@ if _FUNCTIONS_DIR not in sys.path:
 import LGBM_functions as lgf  # noqa: E402
 
 
-def run_eda(data, returns):
-    """Exploratory data analysis: price trends, return distributions, correlations."""
-    data.plot(figsize=(12, 6))
-    plt.title('Sector ETF Adjusted Closing Price Trends (2008-2025)')
-    plt.xlabel('Date'); plt.ylabel('Price (USD)')
-    plt.tight_layout(); plt.show()
-
-    returns.plot(kind='box', figsize=(12, 6))
-    plt.title('Sector ETF Daily Return Distributions')
-    plt.tight_layout(); plt.show()
-
-    sns.heatmap(returns.corr(), annot=True, fmt='.2f', cmap='coolwarm', center=0)
-    plt.title('Sector ETF Returns Correlation Heatmap')
-    plt.tight_layout(); plt.show()
-
-
 def main():
-    # 1. Data ingestion.
-    data_path = os.path.join(lgf.get_data_dir(), 'sp500_sector_prices.csv')
+    data_dir = lgf.get_data_dir()
+    plots_dir = lgf.get_plots_dir()
+
+    # ── 1. Data ingestion ───────────────────────────────────────────────────────
+    data_path = os.path.join(data_dir, 'sp500_sector_prices.csv')
     if not os.path.exists(data_path):
         print("Downloading price data from Yahoo Finance ...")
         lgf.download_prices()
@@ -60,34 +48,47 @@ def main():
     returns = data.pct_change().dropna()
     print(f"Loaded prices. Shape: {data.shape}")
 
-    # 2. EDA.
-    run_eda(data, returns)
+    # ── 2. EDA (Stage 1: headless save) ─────────────────────────────────────────
+    lgf.plot_eda(data, returns, plots_dir, close=True)
 
-    # 3-4. Feature engineering + walk-forward training + evaluation per sector.
+    # ── 3-4. Hybrid classifier training + OOS evaluation per sector ─────────────
     macro_z = lgf.download_macro_zscores()
-    oof_pred, sector_results = {}, []
+    results, oof_pred, sector_rows = {}, {}, []
     for ticker in lgf.SECTORS:
-        print(f"\nRunning pipeline for {ticker} ...")
+        print(f"\nRunning hybrid pipeline for {ticker} ...")
         features = lgf.generate_features(returns, ticker, lgf.TICKERS, macro_z=macro_z)
-        target = lgf.make_forward_target(returns, ticker, horizon=lgf.FORWARD_HORIZON)
-        result = lgf.train_evaluate_model(features, target, ticker)
+        y_continuous = lgf.make_forward_target(returns, ticker, horizon=lgf.FORWARD_HORIZON)
+        # Raw (unscaled) rolling volatility — identical definition to the {ticker}_vol
+        # feature — used as the return-scale factor in the probability mapping.
+        vol_series = returns[ticker].shift(1).rolling(lgf.ROLLING_WINDOW).std()
+
+        result = lgf.train_evaluate_hybrid(features, y_continuous, ticker, vol_series)
+        results[ticker] = result
         oof_pred[ticker] = result['y_pred']
-        sector_results.append({
+        sector_rows.append({
             'Sector': ticker,
             'R2': round(result['r2'], 4),
+            'Accuracy': round(result['accuracy'], 4),
+            'AUC': round(result['auc'], 4),
             'RMSE': round(result['rmse'], 6),
             'MAE': round(result['mae'], 6),
             'Directional_Sharpe': round(result['sharpe'], 4),
         })
-        lgf.plot_actual_vs_predicted(result['y_test'], result['y_pred'], ticker)
-        lgf.plot_feature_importances(result['importances_df'], ticker)
 
-    results_df = pd.DataFrame(sector_results)
-    print("\nSector Performance Summary (OOS):")
+        # Stage 1: save per-sector prediction and feature-importance figures.
+        pred_dir = lgf.get_plots_dir(os.path.join('Sector_Predictions', ticker))
+        imp_dir = lgf.get_plots_dir(os.path.join('Feature_Importances', ticker))
+        lgf.plot_actual_vs_predicted(result['y_test'], result['y_pred'], ticker,
+                                     save_path=os.path.join(pred_dir, 'prediction.png'), close=True)
+        lgf.plot_feature_importances(result['importances_df'], ticker,
+                                     save_path=os.path.join(imp_dir, 'feature_importance.png'), close=True)
+
+    results_df = pd.DataFrame(sector_rows)
+    print("\nSector Performance Summary (OOS, hybrid classifier):")
     print(results_df.to_string(index=False))
-    results_df.to_csv(os.path.join(lgf.get_data_dir(), 'sector_model_summary.csv'), index=False)
+    results_df.to_csv(os.path.join(data_dir, 'sector_model_summary.csv'), index=False)
 
-    # 5. Risk attribution.
+    # ── 5. Risk attribution ─────────────────────────────────────────────────────
     mean_return = returns.mean() * 252
     volatility = returns.std() * np.sqrt(252)
     risk_free_rate = 0.03
@@ -98,24 +99,39 @@ def main():
     }).sort_values(by='Sharpe Ratio', ascending=False)
     print("\nSector Risk Summary:")
     print(summary.to_string())
-    summary.to_csv(os.path.join(lgf.get_data_dir(), 'lgbm_risk_summary.csv'))
+    summary.to_csv(os.path.join(data_dir, 'lgbm_risk_summary.csv'))
 
-    plt.style.use('ggplot')
+    # Stage 1: summary bar charts.
     r2_sorted = results_df.sort_values(by='R2', ascending=False)
-    plt.figure(figsize=(10, 6))
-    plt.bar(r2_sorted['Sector'], r2_sorted['R2'], alpha=0.75, color='steelblue')
-    plt.title('Out-of-Sample R2 by Sector', fontsize=16)
-    plt.xlabel('Sector ETF'); plt.ylabel('R2'); plt.ylim(bottom=min(0, r2_sorted['R2'].min()))
-    plt.grid(True, axis='y'); plt.tight_layout(); plt.show()
+    lgf.plot_metric_bar(
+        r2_sorted['Sector'].tolist(), r2_sorted['R2'].tolist(),
+        'Out-of-Sample Continuous R2 by Sector (Mapped from Classifier)',
+        'R2 (mapped probability -> return)', color='steelblue',
+        save_path=os.path.join(lgf.get_plots_dir('R²_By_Sector'), 'r2_by_sector.png'), close=True)
 
-    plt.figure(figsize=(12, 6))
-    plt.bar(summary.index, summary['Sharpe Ratio'], color='mediumseagreen', alpha=0.75)
-    plt.title('Annualized Sharpe Ratio by Sector (2008-2025)', fontsize=16)
-    plt.xlabel('Sector ETF'); plt.ylabel('Sharpe Ratio')
-    plt.axhline(y=1.0, color='black', linestyle='--', label='Sharpe = 1.0')
-    plt.legend(); plt.grid(True, axis='y'); plt.tight_layout(); plt.show()
+    acc_sorted = results_df.sort_values(by='Accuracy', ascending=False)
+    lgf.plot_metric_bar(
+        acc_sorted['Sector'].tolist(), acc_sorted['Accuracy'].tolist(),
+        'Directional Classification Accuracy by Sector', 'Accuracy',
+        color='mediumpurple', hline=0.5, hline_label='Coin-flip (0.50)',
+        save_path=os.path.join(lgf.get_plots_dir('Classification_Metrics'), 'accuracy_by_sector.png'),
+        close=True)
+    auc_sorted = results_df.sort_values(by='AUC', ascending=False)
+    lgf.plot_metric_bar(
+        auc_sorted['Sector'].tolist(), auc_sorted['AUC'].tolist(),
+        'Directional ROC-AUC by Sector', 'ROC-AUC',
+        color='indianred', hline=0.5, hline_label='Random (0.50)',
+        save_path=os.path.join(lgf.get_plots_dir('Classification_Metrics'), 'auc_by_sector.png'),
+        close=True)
 
-    # 6. Cross-sectional portfolio backtest (un-leaked walk-forward trading Sharpe).
+    lgf.plot_metric_bar(
+        summary.index.tolist(), summary['Sharpe Ratio'].tolist(),
+        'Annualized Sharpe Ratio by Sector (2008-2025)', 'Sharpe Ratio',
+        color='mediumseagreen', hline=1.0, hline_label='Sharpe = 1.0',
+        save_path=os.path.join(lgf.get_plots_dir('Sharpe_Ratio_By_Sector'), 'sharpe_by_sector.png'),
+        close=True)
+
+    # ── 6. Cross-sectional portfolio backtest ───────────────────────────────────
     pred_matrix = pd.DataFrame(oof_pred).dropna()
     realized_next = returns[lgf.SECTORS].shift(-1)
     backtests = {}
@@ -125,9 +141,41 @@ def main():
         backtests[label] = res
         print(f"[{label}] Trading Sharpe: {res['sharpe']:.4f} | "
               f"Ann. return: {res['ann_return']:.4%} | Max DD: {res['max_drawdown']:.4%}")
-    lgf.plot_equity_curve(backtests)
+    lgf.plot_equity_curve(
+        backtests, save_path=os.path.join(lgf.get_plots_dir('Portfolio_Backtest'), 'equity_curve.png'),
+        close=True)
 
-    print("\nPipeline complete.")
+    bt_summary = pd.DataFrame([
+        {'Strategy': label, 'Sharpe': round(r['sharpe'], 4),
+         'Annual_Return': round(r['ann_return'], 4), 'Annual_Vol': round(r['ann_vol'], 4),
+         'Max_Drawdown': round(r['max_drawdown'], 4)}
+        for label, r in backtests.items()
+    ])
+    bt_summary.to_csv(os.path.join(data_dir, 'portfolio_backtest_summary.csv'), index=False)
+    pd.DataFrame({k: v['returns'] for k, v in backtests.items()}).to_csv(
+        os.path.join(data_dir, 'portfolio_backtest_returns.csv'))
+
+    # ── Stage 2: simultaneous non-blocking batch display ────────────────────────
+    print("\nAll calculations complete. Launching all evaluation plots concurrently ...")
+    plt.ion()  # interactive mode: figures render without blocking the thread
+    for ticker in lgf.SECTORS:
+        lgf.plot_actual_vs_predicted(results[ticker]['y_test'], results[ticker]['y_pred'],
+                                     ticker, close=False)
+        lgf.plot_feature_importances(results[ticker]['importances_df'], ticker, close=False)
+    lgf.plot_metric_bar(r2_sorted['Sector'].tolist(), r2_sorted['R2'].tolist(),
+                        'OOS R2 by Sector', 'R2', close=False)
+    lgf.plot_metric_bar(acc_sorted['Sector'].tolist(), acc_sorted['Accuracy'].tolist(),
+                        'Accuracy by Sector', 'Accuracy', color='mediumpurple',
+                        hline=0.5, hline_label='0.50', close=False)
+    lgf.plot_metric_bar(summary.index.tolist(), summary['Sharpe Ratio'].tolist(),
+                        'Sharpe by Sector', 'Sharpe', color='mediumseagreen',
+                        hline=1.0, hline_label='1.0', close=False)
+    lgf.plot_equity_curve(backtests, close=False)
+
+    # Keep every window open together until the user closes them. Under a headless
+    # (Agg) backend this returns immediately, so batch asset generation still completes.
+    plt.show(block=True)
+    print("Pipeline complete.")
 
 
 if __name__ == '__main__':
