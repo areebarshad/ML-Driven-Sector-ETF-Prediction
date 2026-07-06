@@ -208,6 +208,22 @@ Install with `pip install -r requirements.txt`.
 
 ---
 
+## Deployed Dashboard Terminal
+
+The complete interactive walk-forward analytics platform is deployed and publicly accessible via Streamlit Community Cloud:
+https://systematic-sector-alpha.streamlit.app/
+
+### 🖥️ Dashboard Architecture
+
+The frontend terminal translates our leakage-free walk-forward pipeline into an interactive layout replicating an institutional quantitative trading dashboard. It provides direct, runtime configuration of the underlying inference mechanics:
+
+- **Signal Engine Controls:** Allows real-time toggling across the nine S&P 500 GICS sectors, adjustable lookback feature lag windows ($1\text{D}$ to $60\text{D}$), and cross-sectional target horizons.
+- **Dynamic Inference Tracking:** Visualizes the out-of-fold cumulative realized returns side-by-side with the mapped continuous directional `LGBMClassifier` alpha projections.
+- **Game-Theoretic Attribution Layer:** Runs a local `shap.TreeExplainer` on the fitted decision trees to calculate and map out individual mean absolute SHAP values, providing transparent model rationale for the underlying feature space (macro regimes, cross-sector spreads, and statistical moments).
+- **Audit Logging:** Exposes the low-level signal execution log containing raw probability metrics, risk-adjusted scaled weights, and mathematical convergence parameters for historical out-of-sample blocks.
+
+---
+
 ## Author
 
 **Areeb Arshad**  
