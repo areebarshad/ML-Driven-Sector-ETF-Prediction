@@ -1,7 +1,6 @@
 # Data Directory
 
-This directory holds the raw and generated data artifacts for the ML-Driven Sector
-ETF Prediction pipeline. It is intentionally shipped empty (tracked via `.gitkeep`) —
+This directory holds the raw and generated data artifacts for the engine's pipeline. It is intentionally shipped empty (tracked via `.gitkeep`) —
 all files below are regenerated deterministically by running the pipeline scripts in
 `notebooks/`. The pipeline resolves this directory relative to the source files via
 `LGBM_functions.get_data_dir()`, so no absolute paths are hardcoded.

@@ -1,6 +1,6 @@
 # Reports Directory
 
-This directory contains structured analytical reports derived from the ML-Driven Sector ETF Prediction pipeline. Reports synthesise quantitative outputs from model evaluation and risk attribution into narrative summaries suitable for review, reproducibility documentation, and investment thesis communication.
+This directory contains structured analytical reports derived from the engine. Reports synthesise quantitative outputs from model evaluation and risk attribution into narrative summaries suitable for review, reproducibility documentation, and investment thesis communication.
 
 ---
 
