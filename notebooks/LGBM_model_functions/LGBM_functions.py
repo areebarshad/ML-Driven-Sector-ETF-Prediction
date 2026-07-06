@@ -681,6 +681,12 @@ def train_evaluate_hybrid(features, y_continuous, target_ticker, vol_series,
         "y_pred": pd.Series(oof_cont_pred, index=oof_index),
         "prob": pd.Series(oof_prob, index=oof_index),
         "importances_df": importances_df,
+        # Post-transform, post-scaling feature matrix the final model was fit on.
+        # Returned so downstream explainers (shap.TreeExplainer) can be run on the
+        # exact same feature columns/order the booster saw — the ADF differencing,
+        # multicollinearity pruning, per-fold PCA compression and scaling all happen
+        # inside this function, so the caller cannot otherwise reconstruct it.
+        "X_explain": X_full_s,
     }
 
 

@@ -10,3 +10,8 @@ statsmodels>=0.14        # Augmented Dickey-Fuller stationarity screening
 yfinance>=0.2.40         # Yahoo Finance market-data ingestion
 matplotlib>=3.7
 seaborn>=0.12
+
+# ── Terminal app (app.py) ────────────────────────────────────────────────────
+streamlit>=1.30.0        # interactive quant-terminal front end
+shap>=0.44               # TreeExplainer factor attributions on the LightGBM model
+plotly>=5.18             # interactive dark-theme analytics charts
