@@ -1,121 +1,95 @@
-# Risk Assessment Summary 
+# Risk Assessment Summary — Sector ETF Universe
 
 ## Overview
 
-- The **Risk Assessment Summary** provides an in-depth analysis of various S&P 500 sectors' risk profiles based on
-historical price and volatility data. 
-- This assessment aims to evaluate the sectors' performance using key risk metrics such as **Sharpe Ratio**, **Annual Volatility**,
-and **Annual Return**.
+This report presents a quantitative risk attribution analysis of nine S&P 500 GICS sector ETFs over the full 2008–2025 sample period. Risk metrics are computed from daily arithmetic return series and annualised using standard scaling conventions (252 trading days per year). The analysis supports portfolio construction by ranking sectors on a risk-adjusted return basis and contextualising each sector's volatility profile within the macro regime history of the sample window.
 
-## Purpose
+---
 
-- By assessing these factors, the summary helps investors understand each sector's risk-adjusted returns, volatility, 
-and potential for recovery during market downturn. 
-- This report includes sector-level risk assessments, visualizations, and sector comparison for making informed investment
-decisions.
+## Risk Metric Definitions
 
-## Risk Metrics Explained 
+| Metric | Formula | Interpretation |
+|--------|---------|----------------|
+| **Annual Return** | μ × 252 | Annualised expected return; arithmetic mean of daily returns scaled by 252 trading days |
+| **Annual Volatility** | σ × √252 | Annualised standard deviation of daily returns; measures total return dispersion (systematic + idiosyncratic risk) |
+| **Sharpe Ratio** | (μ_annual − r_f) / σ_annual | Risk-adjusted excess return per unit of total volatility; r_f = 3% as a long-run approximation of the risk-free rate (10-year US Treasury yield proxy). Values > 1.0 are conventionally acceptable; > 2.0 strong; > 3.0 exceptional |
 
-The following risk metrics are calculated and analyzed for each sector:
-1. **Sharpe Ratio**: Measured the risk-adjusted return of a sector. A higher ratio indicates a better risk-return trade-off.
-2. **Annual Volatility**: Represents the annualized standard deviation of returns, providing an estimate of market fluctuations.
-3. **Annual Return**: Measures the yearly return of each sector, helping to evaluate overall growth potential.
+Note: The Sharpe ratio as computed here reflects the unconditional historical risk-return profile of passive long exposure to each sector ETF — it is not a strategy Sharpe and does not account for the directional signal from the LightGBM model. For model strategy Sharpe ratios, see `Model_Reports/`.
 
-## Results Table
+---
 
-| Sector | Annual Return | Annual Volatility | Sharpe Ratio |
-| ------ | ------------- | ----------------- | ------------ |
-| `XLK` | 0.2236 | 0.2438 | 0.7940 |
-| `XLF` | 0.1452 | 0.2262 | 0.5096 |
-| `XLV` | 0.0992 | 0.1677 | 0.4125 |
-| `XLI` | 0.1399 | 0.2010 | 0.5467 |
-| `XLB` | 0.1112 | 0.2096 | 0.3879 |
-| `XLY` | 0.1386 | 0.2207 | 0.4921 |
-| `XLU` | 0.1135 | 0.1941 | 0.4302 |
-| `XLP` | 0.0884 | 0.1481 | 0.3940 |
-| `XLRE` | 0.0894 | 0.2086 | 0.2847 |
+## Results
 
-## Discussion of Results 
+| Sector | Annual Return | Annual Volatility | Sharpe Ratio | Risk Profile |
+|--------|--------------|-------------------|--------------|--------------|
+| XLK | 22.36% | 24.38% | 0.794 | High return, high volatility — aggressive growth |
+| XLI | 13.99% | 20.10% | 0.547 | Cyclical, moderate risk-return balance |
+| XLF | 14.52% | 22.62% | 0.510 | Macro-sensitive, elevated tail risk |
+| XLY | 13.86% | 22.07% | 0.492 | Income-cycle driven, retail-sensitive |
+| XLU | 11.35% | 19.41% | 0.430 | Defensive, mean-reverting, rate-sensitive |
+| XLV | 9.92%  | 16.77% | 0.413 | Low-beta, stable, defensive growth |
+| XLP | 8.84%  | 14.81% | 0.394 | Lowest volatility, near-stationary returns |
+| XLB | 11.12% | 20.96% | 0.388 | Commodity-linked, elevated downside tail |
+| XLRE | 8.94%  | 20.86% | 0.285 | Duration-sensitive, weakest risk-adjusted return |
 
-1. `XLK (Technology)`:
-- Annual Return: 0.2236
-- Annual Volatility: 0.2438
-- Sharpe Ratio: 0.7940
+---
 
-The Technology sector, represented by `XLK`, offers the highest annual return of 22.36%. Despite this, it has relatively high volatility (24.38%). However, its Sharpe Ratio of 0.7940 indicates a solid risk-adjusted return, making it a favorable choice for those seeking growth with a moderate level of risk.
+## Sector-by-Sector Analysis
 
-2. `XLF (Financials)`:
-- Annual Return: 0.1452
-- Annual Volatility: 0.2262
-- Sharpe Ratio: 0.5096
+### XLK — Information Technology (Sharpe: 0.794)
 
-The Financials sector, represented by `XLF`, provides a more modest return of 14.52% with a slightly lower volatility (22.62%) compared to Technology. The Sharpe Ratio of 0.5096 suggests it offers a good, but less impressive, risk-adjusted return than Technology. It may be considered a safer bet for those looking for moderate returns with lower risk.
+XLK delivers the highest annualised return in the universe (22.36%) at the cost of the highest absolute volatility (24.38%). Its above-average Sharpe ratio reflects that the excess return premium compensates adequately for the elevated risk. The Technology sector's return dynamics are characterised by strong mean-reversion momentum in trending regimes but sharp drawdowns during rate-driven valuation repricing cycles (e.g. 2022 tech sell-off post-ZIRP). High earnings growth sensitivity and multiple expansion/compression dynamics contribute to elevated kurtosis in the return distribution.
 
-3. `XLV (Healthcare)`:
-- Annual Return: 0.0992
-- Annual Volatility: 0.1677
-- Sharpe Ratio: 0.4125
+### XLF — Financials (Sharpe: 0.510)
 
-The Healthcare sector, represented by `XLV`, has a lower annual return (9.92%) but also lower volatility (16.77%). Its Sharpe Ratio of 0.4125 indicates that while the returns are lower, the sector is less volatile, making it more suitable for risk-averse investors who prioritize stability over high returns.
+XLF exhibits a moderate return-to-risk trade-off. Its volatility is elevated (22.62%) due to macro-driven exposure to credit spreads, yield curve dynamics (net interest margin sensitivity), and systemic risk events (GFC 2008–09, regional banking stress 2023). The fat-tailed return distribution (excess kurtosis) makes annualised standard deviation a potentially understated risk measure — conditional value-at-risk (CVaR) would provide a more conservative risk estimate.
 
-4. `XLI (Industrials)`:
-- Annual Return: 0.1399
-- Annual Volatility: 0.2010
-- Sharpe Ratio: 0.5467
+### XLV — Health Care (Sharpe: 0.413)
 
-Industrials, represented by `XLI`, provides a balanced combination of return (13.99%) and volatility (20.10%). The Sharpe Ratio of 0.5467 is moderate, suggesting that the sector offers a reasonable return relative to its risk. It can be considered for investors looking for a balance between growth and stability.
+Healthcare occupies a defensive position in the GICS taxonomy. Its low annual volatility (16.77%) reflects inelastic demand characteristics, stable earnings streams from pharmaceutical and insurance subsectors, and limited cyclicality. The sector's low correlation with broad-market risk factors (low rolling beta to SPY) makes it a valuable diversifier in a multi-sector portfolio framework.
 
-5. `XLB (Materials)`:
-- Annual Return: 0.1112
-- Annual Volatility: 0.2096
-- Sharpe Ratio: 0.3879
+### XLI — Industrials (Sharpe: 0.547)
 
-The Materials sector, represented by `XLB`, has a relatively low return (11.12%) and moderate volatility (20.96%). Its Sharpe Ratio of 0.3879 indicates that it provides less attractive risk-adjusted returns compared to other sectors. It might be suited for conservative investors who value lower volatility over higher returns.
+XLI is a cyclical sector with GDP-sensitive demand drivers (capital expenditure, manufacturing activity, freight volumes). Its moderate volatility (20.10%) and solid annualised return (13.99%) produce the second-highest Sharpe ratio, reflecting that industrial earnings cycles align well with the broad equity risk premium over long horizons.
 
-6. `XLY (Consumer Discretionary)`:
-- Annual Return: 0.1386
-- Annual Volatility: 0.2207
-- Sharpe Ratio: 0.4921
+### XLP — Consumer Staples (Sharpe: 0.394)
 
-The Consumer Discretionary sector, represented by `XLY`, has a return of 13.86% and volatility of 22.07%. The Sharpe Ratio of 0.4921 suggests that it offers moderate returns for a relatively higher risk. It could be a good choice for investors seeking growth in a more volatile environment.
+Consumer Staples is the lowest-volatility sector in the universe (14.81%), reflecting inelastic demand for non-discretionary goods (food, beverages, household products). The near-stationary return process and smooth autocorrelation structure make XLP one of the most predictable sectors for the LightGBM model. Its low Sharpe ratio relative to its defensive characteristics is partly attributable to the valuation compression risk introduced by rate cycles.
 
-7. `XLU (Utilities)`:
-- Annual Return: 0.1135
-- Annual Volatility: 0.1941
-- Sharpe Ratio: 0.4302
+### XLB — Materials (Sharpe: 0.388)
 
-The Utilities sector, represented by `XLU`, has a lower return (11.35%) but offers lower volatility (19.41%). Its Sharpe Ratio of 0.4302 suggests a moderate risk-return trade-off. This sector is suitable for risk-averse investors who prefer stability over high returns.
+Materials exhibit commodity-linked return dynamics with exposure to global industrial demand, currency effects (USD sensitivity of commodity prices), and supply-chain disruptions. The elevated volatility (20.96%) relative to return (11.12%) produces a below-average Sharpe ratio. Fat tails driven by commodity supercycles and demand shocks (e.g. China reopening, post-COVID supply constraints) create intermittent large positive and negative return outliers.
 
-8. `XLP (Consumer Staples)`:
-- Annual Return: 0.0884
-- Annual Volatility: 0.1481
-- Sharpe Ratio: 0.3940
+### XLU — Utilities (Sharpe: 0.430)
 
-Consumer Staples, represented by `XLP`, offers the lowest return (8.84%) and volatility (14.81%) among the sectors analyzed. Its Sharpe Ratio of 0.3940 indicates that while it offers less return, it is one of the least volatile sectors, making it a good choice for investors prioritizing low-risk investments.
+Utilities are characterised by near-stationary, mean-reverting return series with minimal variance. The sector's primary risk driver is interest rate sensitivity: as a bond proxy, Utilities experience valuation compression during rate-hike cycles (negative duration exposure) and expansion during dovish pivots. The moderate Sharpe ratio reflects that yield-seeking returns are periodically offset by rate-driven capital losses.
 
-9. `XLRE (Real Estate)`:
-- Annual Return: 0.0894
-- Annual Volatility: 0.2086
-- Sharpe Ratio: 0.2847
+### XLRE — Real Estate (Sharpe: 0.285)
 
-Real Estate, represented by `XLRE`, offers the lowest Sharpe Ratio of 0.2847, indicating the weakest risk-adjusted return among the sectors. The return (8.94%) is comparable to XLP, but it comes with higher volatility (20.86%). This sector may appeal to those who are looking for yield but are willing to accept more risk.
+XLRE exhibits the weakest risk-adjusted return in the universe, with a Sharpe ratio of 0.285 driven by the combination of modest annualised return (8.94%) and elevated volatility (20.86%). The sector's sensitivity to the term premium — the spread between long-term and short-term Treasury yields — makes it particularly vulnerable during monetary tightening cycles. The 2022 rate-hike cycle produced sharp REIT valuation drawdowns, significantly impacting the full-sample Sharpe ratio.
 
-## Conclusion
+### XLY — Consumer Discretionary (Sharpe: 0.492)
 
-- `XLK (Technology)` provides the best risk-adjusted return, with a relatively high Sharpe Ratio of 0.7940 and a solid annual return of 22.36%. It is suitable for investors who are willing to accept moderate volatility for higher returns.
-- `XLF (Financials)` and `XLY (Consumer Discretionary)` also offer decent returns and moderate risk profiles, making them attractive for investors seeking a balance between stability and growth.
-- `XLI (Industrials)` provides a balanced combination of return (13.99%) and volatility (20.10%), with a Sharpe Ratio of 0.5467. It is ideal for those looking for a middle ground between risk and return.
-- `XLV (Healthcare)`, `XLU (Utilities)`, and `XLP (Consumer Staples)` are lower-risk sectors with stable returns, making them suitable for conservative investors.
-- `XLRE (Real Estate)` offers the least favorable risk-adjusted returns and should be approached with caution if stability is a priority.
-- `XLB (Materials)` has the lowest return (11.12%) and a Sharpe Ratio of 0.3879, suggesting that it offers less attractive risk-adjusted returns compared to other sectors. It is a safer option for conservative investors, but the returns may be less appealing.
+Consumer Discretionary reflects income-elasticity and consumer confidence dynamics. Its return (13.86%) and volatility (22.07%) are driven by retail earnings sensitivity, e-commerce sector weights (notably Amazon), and credit cycle exposure. The sector tends to outperform during expansionary phases and underperform sharply during credit contractions.
 
-## Summary
+---
 
-- Top Performers: `XLK (Technology)`, `XLF (Financials`, `XLY (Consumer Discretionary)`
-- Mid Range Sectors: `XLI (Industrials)`, `XLV (Healthcare`, `XLB (Materials)`
-- Lower-risk, Lower-return Sectors: `XLU (Utilities)`, `XLP (Consumer Staples)`, `XLRE (Real Estate)`
+## Portfolio Implications
 
-## Donwloadable Files
+| Risk Profile | Recommended Sectors | Rationale |
+|--------------|--------------------|-----------| 
+| Aggressive growth | XLK, XLF, XLY | Highest absolute returns; suitable for long-horizon investors with high risk tolerance |
+| Balanced | XLI, XLB | Cyclical exposure with moderate volatility; benefits from economic expansion phases |
+| Defensive / capital preservation | XLV, XLP, XLU | Low beta, low volatility; reduce portfolio drawdown during market stress regimes |
+| Avoid (risk-adjusted basis) | XLRE | Lowest Sharpe ratio; rate sensitivity creates asymmetric downside in tightening cycles |
 
-- Download available of the charts for returns, volatility, and sharpe ratios in the `plots/` directory.
-- The `lgbm_risk_summary.csv` is available for download in the `data/` directory. 
+Cross-sectional diversification benefit: sectors with low pairwise return correlations (e.g. XLV + XLK, XLP + XLF) provide the greatest reduction in portfolio volatility for a given level of expected return, as formalised by mean-variance portfolio theory (Markowitz, 1952).
+
+---
+
+## Downloadable Outputs
+
+- `data/lgbm_risk_summary.csv` — Machine-readable risk metrics table (annualised return, volatility, Sharpe ratio per sector)
+- `plots/Sharpe_Ratio_By_Sector/` — Bar chart of annualised Sharpe ratios across sectors
+- `plots/Price_Trends_&_Return_Distributions/` — Return distribution box plots for visual risk assessment
+- `plots/Returns_Correlation_Heatmap/` — Cross-sectional correlation matrix
