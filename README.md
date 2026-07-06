@@ -213,7 +213,7 @@ Install with `pip install -r requirements.txt`.
 The complete interactive walk-forward analytics platform is deployed and publicly accessible via Streamlit Community Cloud:
 https://systematic-sector-alpha.streamlit.app/
 
-### 🖥️ Dashboard Architecture
+### Dashboard Architecture
 
 The frontend terminal translates our leakage-free walk-forward pipeline into an interactive layout replicating an institutional quantitative trading dashboard. It provides direct, runtime configuration of the underlying inference mechanics:
 
