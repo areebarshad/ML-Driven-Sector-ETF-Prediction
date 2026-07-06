@@ -70,6 +70,13 @@ All features are lagged by ≥ 1 trading day to enforce look-ahead-free construc
 
 ## Performance Metrics (Out-of-Sample)
 
+> ⚠️ **These figures predate the leakage-elimination upgrade.** They were generated
+> under a methodology with a backward-looking target, a global scaler, a globally-fit
+> PCA, and a single static split — all of which inflate apparent out-of-sample skill.
+> They are retained here only as a historical baseline and **must be regenerated** with
+> the corrected leakage-free walk-forward pipeline (see
+> `../Methodology_Enhancements/`). Expect materially lower, more realistic R² values.
+
 | Sector | R² | RMSE | MAE |
 |--------|-----|------|-----|
 | XLK | 0.7940 | 0.003030 | 0.002180 |

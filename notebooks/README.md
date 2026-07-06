@@ -14,8 +14,9 @@ The modules are structured to follow a modular pipeline: raw data ingestion → 
 | `sector_eda/` | `LGBM_sector_EDA.py` | Performs exploratory data analysis on the sector return series. Generates: (1) non-stationary price trend plots for regime identification; (2) box plots of the daily return distribution exposing cross-sectional dispersion in mean, volatility, skewness, and excess kurtosis; (3) a Pearson correlation heatmap quantifying linear co-movement across sectors. |
 | `sector_predictive_analysis/` | `LGBM_predictive_analysis.py` | Constructs the full feature matrix (rolling moments, PCA-compressed lags, macroeconomic regime indicators, cross-sectional signals, interaction terms) and trains a sector-specific LightGBM regressor on a fixed temporal split (2010–2020 in-sample, 2021–2025 out-of-time). Includes a feature importance pruning step (65th percentile threshold) to remove noise features. |
 | `sector_risk_analysis/` | `LGBM_sector_risk_analysis.py` | Computes annualised risk metrics: mean return (μ × 252), annualised volatility (σ × √252), and Sharpe ratio ((μ − r_f) / σ) with r_f = 3% as a long-run risk-free rate proxy. Generates R² and Sharpe ratio comparison charts across the sector universe. |
-| `LGBM_model_functions/` | `LGBM_functions.py` | Reusable function library exposing `generate_features()`, `train_evaluate_model()`, `plot_feature_importances()`, and `plot_actual_vs_predicted()`. The `train_evaluate_model()` function implements walk-forward `TimeSeriesSplit` cross-validation (5 folds) with per-fold `StandardScaler` refitting to eliminate global-scaler data leakage — a common source of inflated OOS metrics in financial ML pipelines. |
-| `LGBM_Prediction_Model/` | `LightGBM_prediction_model.py` | End-to-end consolidated pipeline that executes the full workflow in a single script: data ingestion → EDA → feature engineering → walk-forward model training → OOS evaluation → risk attribution → visualisation. Serves as the canonical entry point for reproducing all reported results. |
+| `portfolio_backtest/` | `LGBM_portfolio_backtest.py` | Converts the walk-forward out-of-fold predictions into a tradeable cross-sectional long-short strategy and reports an **un-leaked walk-forward trading Sharpe**. Implements both a proportional scheme (`w = ŷ / Σ\|ŷ\|`) and a top-N long-short scheme, applying weights formed at `t` to next-day realized returns. Saves the cumulative equity curve and strategy return series. |
+| `LGBM_model_functions/` | `LGBM_functions.py` | **Single source of truth** for the pipeline — every driver imports it. Exposes data ingestion (`download_prices`, `load_returns`, `download_macro_zscores`), stationarity screening (`adf_is_stationary`, `select_nonstationary_columns`, `apply_first_difference`), feature engineering (`generate_features`, `make_forward_target`), leakage-free training (`train_evaluate_model`), and the portfolio engine (`build_weights`, `backtest_portfolio`). `train_evaluate_model()` runs walk-forward `TimeSeriesSplit` CV (5 folds) with **per-fold `StandardScaler` and per-fold PCA** refitting, ADF-based first-differencing decided on the earliest training block, and multicollinearity pruning — eliminating the global-scaler, global-PCA, target-construction, and static-split leakage of earlier revisions. |
+| `LGBM_Prediction_Model/` | `LightGBM_prediction_model.py` | End-to-end consolidated orchestrator that executes the full workflow via the shared library: data ingestion → EDA → walk-forward model training → OOS evaluation → risk attribution → cross-sectional portfolio backtest. Canonical entry point for reproducing all reported results. |
 
 ---
 
@@ -28,9 +29,12 @@ For a clean run from scratch, execute the modules in the following dependency or
 2. sector_eda/LGBM_sector_EDA.py                           # requires sp500_sector_prices.csv
 3. sector_predictive_analysis/LGBM_predictive_analysis.py  # generates sector_model_summary.csv
 4. sector_risk_analysis/LGBM_sector_risk_analysis.py       # requires both CSVs
+5. portfolio_backtest/LGBM_portfolio_backtest.py           # generates portfolio_backtest_*.csv
 ```
 
-Alternatively, run `LGBM_Prediction_Model/LightGBM_prediction_model.py` directly — it consolidates the full pipeline end-to-end.
+Alternatively, run `LGBM_Prediction_Model/LightGBM_prediction_model.py` directly — it consolidates the full pipeline (including the portfolio backtest) end-to-end.
+
+Install dependencies first with `pip install -r ../requirements.txt`. The driver scripts import the shared library by adding `LGBM_model_functions/` to `sys.path`, so they can be run from any working directory.
 
 ---
 
@@ -38,9 +42,10 @@ Alternatively, run `LGBM_Prediction_Model/LightGBM_prediction_model.py` directly
 
 - **Look-ahead prevention**: All features are lagged by at least 1 trading day (`shift(1)`) before entering the model. No contemporaneous return information is used as a predictor.
 - **Leakage controls**: `StandardScaler` normalisation (zero-mean, unit-variance) is fitted exclusively on training data within each cross-validation fold. Fitting the scaler on the full dataset before splitting would leak test-set statistics, inflating OOS metrics.
-- **Multicollinearity pruning**: Features with pairwise Pearson |r| > 0.95 are identified from the upper triangular correlation matrix and removed prior to model training, stabilising gradient descent in the boosting procedure.
-- **PCA dimensionality reduction**: Raw autoregressive lag features (lags 1–10) are projected onto 5 orthogonal principal components, compressing collinear lag information while retaining the dominant axes of autocorrelation variance.
-- **File paths**: All scripts resolve the `data/` directory relative to `__file__` using `os.path`, making them portable across systems without hardcoded absolute paths.
+- **Multicollinearity pruning**: Features with pairwise Pearson |r| > 0.95 are identified from the upper triangular correlation matrix (computed on the earliest training block) and removed prior to model training, stabilising gradient descent in the boosting procedure.
+- **Per-fold PCA dimensionality reduction**: Raw autoregressive lag features (lags 1–10) are projected onto 5 orthogonal principal components **fitted inside each CV fold on training rows only**, compressing collinear lag information while retaining the dominant axes of autocorrelation variance — without the global-PCA leakage of earlier revisions.
+- **Stationarity screening**: An Augmented Dickey-Fuller (ADF) test flags non-stationary features (p > 0.05), which are first-differenced; the differencing decision is made on the earliest training block to stay leakage-free.
+- **File paths**: All scripts resolve the `data/` and `plots/` directories relative to `__file__` via `LGBM_functions.get_data_dir()` / `get_plots_dir()`, making them portable across systems without hardcoded absolute paths.
 
 ---
 

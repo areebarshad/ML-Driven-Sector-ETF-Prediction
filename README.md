@@ -54,10 +54,13 @@ The feature matrix (~80+ features per sector) is constructed with strict look-ah
 - **Systematic risk proxies**: Rolling Pearson correlation and covariance with SPY, rolling beta (covariance over variance), and idiosyncratic market deviation.
 - **Drawdown**: Rolling maximum drawdown within a 20-day lookback window — a non-linear downside risk measure.
 - **Cross-sectional momentum**: Equal-weighted mean and volatility of all other sector returns (excluding the target), and their ratio as a sector-level Sharpe proxy.
-- **Macroeconomic regime features**: VIX and TNX z-scores (60-day rolling standardisation), a binary volatility regime flag (VIX z-score > +1σ), and lagged versions (lags 1–5) to model delayed transmission of macroeconomic shocks.
+- **Macroeconomic regime features**: VIX and TNX **252-day rolling z-scores** (1-year standardisation window, extracting local regime shocks from non-stationary nominal levels), a binary volatility regime flag (VIX z-score > +1σ), and lagged versions (lags 1–5) to model delayed transmission of macroeconomic shocks.
+- **Cross-sector spread dynamics**: Lagged return spreads `Spread = X_target − X_peer` against every peer sector — explicit relative-strength / lead-lag rotation signals.
 - **Interaction terms**: Products of lagged momentum and rolling volatility — non-linear feature amplification.
 - **Pairwise sector cross-correlations**: 15-day rolling Pearson correlations with all other sector ETFs, encoding contagion and sector-rotation dynamics.
 - **Calendar effects**: Month, ISO week-of-year, day-of-week, and month-boundary flags for seasonality modelling.
+
+All rolling features obey a strict look-ahead-free construction (`.shift(1)`), and non-stationary features are screened by an **Augmented Dickey-Fuller (ADF)** test and first-differenced where the unit-root null cannot be rejected (p > 0.05).
 
 ### Model: LightGBM
 
@@ -71,11 +74,18 @@ LightGBM (Light Gradient Boosting Machine) is a histogram-based gradient boostin
 
 ### Training and Validation Protocol
 
-- **Walk-forward cross-validation**: `TimeSeriesSplit` with 5 folds enforces temporal ordering — test folds always post-date training folds, preventing temporal data leakage.
+- **Walk-forward cross-validation**: `TimeSeriesSplit` with 5 expanding folds enforces temporal ordering — test folds always post-date training folds, preventing temporal data leakage.
 - **Per-fold StandardScaler**: The `StandardScaler` (zero-mean, unit-variance normalisation) is refit exclusively on each training fold. Using a globally-fit scaler would leak test-set statistics into training — a common source of inflated OOS metrics in financial ML pipelines.
-- **Multicollinearity pruning**: Features with pairwise Pearson |r| > 0.95 are removed from the upper triangular correlation matrix before training to stabilise gradient descent.
+- **Per-fold PCA**: The autoregressive lag block (lags 1–10) is compressed to 5 principal components fitted **inside each fold on training rows only**, eliminating the global-PCA leakage present in earlier revisions.
+- **Leakage-free preprocessing decisions**: Multicollinearity pruning (pairwise |r| > 0.95) and ADF-based first-differencing decisions are made on the earliest training block, never on test data.
 - **Sector dummy encoding**: A one-hot sector identifier is appended to the feature matrix, enabling a unified multi-sector model to learn sector-specific intercept adjustments.
-- **Out-of-fold (OOF) aggregation**: Predictions across all test folds are concatenated to form a pseudo-OOS sequence spanning the full date range.
+- **Out-of-fold (OOF) aggregation**: Predictions across all test folds are concatenated to form a pseudo-OOS sequence spanning the full date range, which also feeds the portfolio backtest.
+
+The forecasting target is the **k-day forward** average return (`returns.rolling(k).mean().shift(-k)`, k = 5) — a genuine future quantity, not a backward-looking summary of the past. See `reports/Methodology_Enhancements/` for the full leakage-audit derivation and knowledge-base references.
+
+### Portfolio Backtest
+
+The out-of-fold predictions are converted into a tradeable cross-sectional strategy under two schemes — proportional weighting (`w = ŷ / Σ|ŷ|`) and top-N long-short — with weights formed at `t` applied to next-day realized returns. This yields an **un-leaked walk-forward trading Sharpe**, annualised return/volatility, maximum drawdown, and a cumulative equity curve, isolating cross-sectional sector-selection skill from broad-market beta.
 
 ### Evaluation Metrics
 
@@ -90,9 +100,22 @@ LightGBM (Light Gradient Boosting Machine) is a histogram-based gradient boostin
 
 ## Results
 
-The LightGBM models demonstrated strong predictive accuracy across the sector universe, with out-of-sample **R² scores ranging from 0.79 to 0.87**, indicating that the engineered feature space captures a substantial portion of the variance in 5-day forward returns. Sectors with more stable autocorrelation structures (XLU, XLP) exhibited higher R² scores, while macro-sensitive sectors (XLF, XLI) showed greater residual variance, consistent with their exposure to unpredictable macroeconomic shocks.
+> **Note on prior figures.** The R² scores of **0.79–0.87** recorded in
+> `reports/Model_Reports/` were produced by an earlier methodology that has since been
+> found to contain four forms of look-ahead leakage (a backward-looking target, a
+> global feature scaler, a globally-fit PCA, and a single static train/test split).
+> Those numbers are almost certainly **optimistically biased** and are *not* directly
+> comparable to the corrected pipeline. Under the leakage-free walk-forward evaluation
+> now implemented, short-horizon daily sector return prediction is a genuinely hard,
+> low-R² problem; the metrics should be **regenerated** by running the pipeline and the
+> reports updated with the new out-of-sample values. See
+> `reports/Methodology_Enhancements/` for the full audit.
 
-The annualised **Sharpe ratio of the directional strategy** exceeded 1.0 for the majority of sectors, suggesting that the model's directional accuracy is sufficient to generate risk-adjusted excess returns above the 3% risk-free rate proxy.
+The corrected pipeline reports, per sector, out-of-sample R², RMSE, MAE, and an
+annualised directional Sharpe, and — at the portfolio level — an un-leaked walk-forward
+trading Sharpe for the cross-sectional long-short strategy. The evaluation is designed
+so that reported performance reflects genuine, tradeable predictive skill rather than
+in-sample overfitting or information leakage.
 
 ---
 
@@ -100,27 +123,33 @@ The annualised **Sharpe ratio of the directional strategy** exceeded 1.0 for the
 
 ```
 ML-Driven-Sector-ETF-Prediction/
-├── data/
+├── data/                                # Empty on clone; regenerated by the pipeline
 │   ├── sp500_sector_prices.csv          # Adjusted closing prices (2008–2025)
-│   ├── sector_model_summary.csv         # OOS evaluation metrics per sector
-│   └── lgbm_risk_summary.csv            # Annualised return, volatility, Sharpe per sector
+│   ├── sector_model_summary.csv         # OOS metrics per sector (R², RMSE, MAE, Sharpe)
+│   ├── lgbm_risk_summary.csv            # Annualised return, volatility, Sharpe per sector
+│   ├── portfolio_backtest_returns.csv   # Daily strategy return series per scheme
+│   └── portfolio_backtest_summary.csv   # Trading Sharpe / drawdown per scheme
 ├── notebooks/
-│   ├── sector_data_collection/          # Price ingestion and preprocessing
+│   ├── sector_data_collection/          # Price ingestion
 │   ├── sector_eda/                      # Exploratory data analysis
-│   ├── sector_predictive_analysis/      # Feature engineering and model training (fixed split)
+│   ├── sector_predictive_analysis/      # Per-sector walk-forward training driver
 │   ├── sector_risk_analysis/            # Risk attribution and performance visualisation
-│   ├── LGBM_model_functions/            # Reusable pipeline functions (walk-forward CV)
-│   └── LGBM_Prediction_Model/           # End-to-end consolidated pipeline
+│   ├── portfolio_backtest/              # Cross-sectional long-short backtest
+│   ├── LGBM_model_functions/            # Shared library — single source of truth
+│   └── LGBM_Prediction_Model/           # End-to-end consolidated orchestrator
 ├── plots/
 │   ├── Feature_Importances/             # Per-sector LightGBM feature importance charts
 │   ├── Price_Trends_&_Return_Distributions/
 │   ├── Returns_Correlation_Heatmap/
 │   ├── R²_By_Sector/
 │   ├── Sector_Predictions/              # Actual vs predicted return overlays
-│   └── Sharpe_Ratio_By_Sector/
+│   ├── Sharpe_Ratio_By_Sector/
+│   └── Portfolio_Backtest/              # Cross-sectional strategy equity curve
 ├── reports/
 │   ├── Model_Reports/
-│   └── Risk_Assessment_Summary/
+│   ├── Risk_Assessment_Summary/
+│   └── Methodology_Enhancements/        # Leakage audit + framework derivation
+├── requirements.txt
 └── README.md
 ```
 
@@ -128,10 +157,13 @@ ML-Driven-Sector-ETF-Prediction/
 
 ## Dependencies
 
+Install with `pip install -r requirements.txt`.
+
 - `yfinance` — Yahoo Finance market data ingestion
-- `pandas`, `numpy` — tabular data manipulation and numerical computing
+- `pandas`, `numpy`, `scipy` — tabular data manipulation and numerical computing
 - `lightgbm` — gradient boosting framework
 - `scikit-learn` — preprocessing, model selection, evaluation metrics
+- `statsmodels` — Augmented Dickey-Fuller stationarity screening
 - `matplotlib`, `seaborn` — statistical visualisation
 
 ---
